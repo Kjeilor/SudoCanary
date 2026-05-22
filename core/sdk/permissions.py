@@ -22,6 +22,27 @@ class Action:
     READ_CANARY_STATE    = "read_canary_state"
     REGISTER_PANEL       = "register_panel"
 
+    # Orchestrator-only
+    MANAGE_SYSTEM              = "manage_system"
+    CREATE_ROOM                = "create_room"
+    DELETE_ROOM                = "delete_room"
+    READ_ACROSS_ROOMS          = "read_across_rooms"
+
+    # Workflow template management
+    CREATE_WORKFLOW_TEMPLATE   = "create_workflow_template"
+    EDIT_WORKFLOW_TEMPLATE     = "edit_workflow_template"
+    PUBLISH_WORKFLOW_TEMPLATE  = "publish_workflow_template"
+    ARCHIVE_WORKFLOW_TEMPLATE  = "archive_workflow_template"
+    INSTALL_TEMPLATE_IN_ROOM   = "install_template_in_room"
+
+    # Bypass and escalation
+    TRIGGER_BYPASS             = "trigger_bypass"
+    TRIGGER_ESCALATION         = "trigger_escalation"
+
+    # Data officer
+    READ_DATA_INVENTORY        = "read_data_inventory"
+    CONFIGURE_RETENTION        = "configure_retention"
+
 @dataclass(frozen=True)
 class PermissionsDeclaration:
     tool_id:          ToolId

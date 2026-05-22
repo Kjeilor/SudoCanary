@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 from .types import Role, RoomId, SensorEvent, SensorId
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class WorkflowStep:
     form_schema:        Optional[Dict]  = None
     max_duration_hours: Optional[int]   = None
     is_terminal:        bool            = False
+    routing:            Optional[Any]   = None  # StepRouting — imported from types at runtime
 
 class WorkflowInstanceStatus(str, Enum):
     ACTIVE    = "active"
@@ -44,6 +45,8 @@ class WorkflowInstance:
     started_at:      datetime
     step_history:    tuple
     status:          WorkflowInstanceStatus = WorkflowInstanceStatus.ACTIVE
+    intervention_log: Tuple[Any, ...] = ()  # Tuple[InterventionRecord, ...]
+    escalation_log:   Tuple[Any, ...] = ()  # Tuple[EscalationRecord, ...]
 
 @dataclass(frozen=True)
 class CrossRoomTrigger:
@@ -74,3 +77,34 @@ class WorkflowSensorPrimitive(Protocol):
     def get_schema(self) -> Dict[str, Any]: ...
     def validate(self, payload: Dict[str, Any]) -> bool: ...
     def on_submit(self, event: SensorEvent, room_api: Any) -> None: ...
+    def trigger_bypass(
+        self,
+        instance_id:  str,
+        bypass_id:    Any,           # BypassId
+        triggered_by: Any,           # UserId
+        reason:       str,
+        room_api:     Any,
+    ) -> Any:                        # WorkflowInstance
+        """
+        Apply a bypass rule to a running instance.
+        Validates triggered_by has permission per the BypassRule.
+        Writes an InterventionRecord to the instance.
+        Writes WORKFLOW_BYPASSED to the audit trail.
+        Notifies parties listed in the BypassRule.
+        Raises PermissionError if triggered_by is not in permitted_roles or permitted_users.
+        """
+        ...
+
+    def trigger_escalation(
+        self,
+        instance_id:  str,
+        on_step_id:   str,
+        room_api:     Any,
+    ) -> Any:                        # WorkflowInstance
+        """
+        Fire the escalation rule for a stalled step.
+        Called by the engine when max_duration_hours is exceeded.
+        Writes an EscalationRecord to the instance.
+        Writes WORKFLOW_ESCALATED to the audit trail.
+        """
+        ...
