@@ -1,8 +1,8 @@
 """
-Database schema initialisation. Called once at application startup.
-All tables are append-only where possible — mutations via UPDATE only for
-mutable state fields (last_login, is_active, totp_secret, first_login_complete).
-Every destructive action goes through the audit_log instead.
+Database schema initialisation.
+
+Day 3 breaking change: audit_log now uses seq INTEGER PRIMARY KEY AUTOINCREMENT.
+If upgrading from a Day 2 database, delete data/canary.db before running.
 """
 from core.db.connection import get_connection
 
@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS rooms (
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
-    log_id      TEXT PRIMARY KEY,
+    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_id      TEXT UNIQUE NOT NULL,
     timestamp   TEXT NOT NULL,
     user_id     TEXT,
     username    TEXT,
@@ -44,6 +45,22 @@ CREATE TABLE IF NOT EXISTS audit_log (
     resource    TEXT,
     details     TEXT,
     success     INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id         TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL REFERENCES rooms(room_id),
+    title           TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    created_by      TEXT NOT NULL REFERENCES users(user_id),
+    created_at      TEXT NOT NULL,
+    trackability    TEXT NOT NULL DEFAULT 'trackable'
+                    CHECK(trackability IN ('trackable', 'untrackable')),
+    assigned_to     TEXT REFERENCES users(user_id),
+    due_at          TEXT,
+    status          TEXT NOT NULL DEFAULT 'open'
+                    CHECK(status IN ('open', 'in_progress', 'complete', 'cancelled')),
+    parent_task_id  TEXT REFERENCES tasks(task_id)
 );
 
 CREATE TABLE IF NOT EXISTS notices (
@@ -62,9 +79,25 @@ CREATE TABLE IF NOT EXISTS data_notice_acceptances (
     notice_version  TEXT NOT NULL DEFAULT '1.0'
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
-CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
-CREATE INDEX IF NOT EXISTS idx_notices_room ON notices(room_id, pinned, created_at);
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id           TEXT PRIMARY KEY REFERENCES users(user_id),
+    theme             TEXT NOT NULL DEFAULT 'dark'
+                      CHECK(theme IN ('light', 'dark', 'system')),
+    font_size         TEXT NOT NULL DEFAULT 'M'
+                      CHECK(font_size IN ('S', 'M', 'L', 'XL')),
+    colour_blind_mode TEXT NOT NULL DEFAULT 'none'
+                      CHECK(colour_blind_mode IN
+                        ('none','deuteranopia','protanopia','tritanopia','monochromacy')),
+    high_contrast     INTEGER NOT NULL DEFAULT 0,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp  ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_user       ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_resource   ON audit_log(resource, seq);
+CREATE INDEX IF NOT EXISTS idx_tasks_room       ON tasks(room_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned   ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_notices_room     ON notices(room_id, pinned, created_at);
 """
 
 

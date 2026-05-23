@@ -95,6 +95,7 @@ class ActionType(str, Enum):
     WORKFLOW_TEMPLATE_CREATED   = "workflow_template_created"
     WORKFLOW_TEMPLATE_PUBLISHED = "workflow_template_published"
     WORKFLOW_TEMPLATE_ARCHIVED  = "workflow_template_archived"
+    TASK_CONTINUED             = "task_continued"
 
 @dataclass(frozen=True)
 class AuditEvent:
@@ -110,7 +111,8 @@ class TaskStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETE    = "complete"
     OVERDUE     = "overdue"
-
+    CANCELLED   = "cancelled"
+    
 class TaskTrackability(str, Enum):
     TRACKABLE   = "trackable"
     UNTRACKABLE = "untrackable"
@@ -127,6 +129,7 @@ class Task:
     assigned_to:  Optional[UserId]  = None
     due_at:       Optional[datetime] = None
     status:       TaskStatus         = TaskStatus.OPEN
+    parent_task_id: Optional[TaskId] = None
 
 @dataclass(frozen=True)
 class DocumentVersion:
@@ -181,8 +184,7 @@ class TemplateStatus(str, Enum):
     DRAFT     = "draft"      # being built, cannot be instantiated
     PUBLISHED = "published"  # live, can be instantiated
     ARCHIVED  = "archived"   # frozen, existing instances complete, no new ones
-
-
+   
 class TemplateScope(str, Enum):
     ROOM   = "room"    # available only within the owning room
     SYSTEM = "system"  # available across all rooms (Orchestrator-created)
