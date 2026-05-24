@@ -1,9 +1,16 @@
 """
 Database schema initialisation.
 
-Day 3 breaking change: audit_log now uses seq INTEGER PRIMARY KEY AUTOINCREMENT.
-If upgrading from a Day 2 database, delete data/canary.db before running.
+Day 3: audit_log uses seq INTEGER PRIMARY KEY AUTOINCREMENT.
+Day 4: sensors, sensor_events, documents, document_versions,
+       workflow_instances tables added. expires_at added to notices
+       via idempotent ALTER TABLE migration.
 """
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timedelta
+
 from core.db.connection import get_connection
 
 SCHEMA = """
@@ -70,7 +77,8 @@ CREATE TABLE IF NOT EXISTS notices (
     title       TEXT NOT NULL,
     body        TEXT NOT NULL,
     pinned      INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS data_notice_acceptances (
@@ -92,15 +100,143 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     updated_at        TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp  ON audit_log(timestamp);
-CREATE INDEX IF NOT EXISTS idx_audit_user       ON audit_log(user_id);
-CREATE INDEX IF NOT EXISTS idx_audit_resource   ON audit_log(resource, seq);
-CREATE INDEX IF NOT EXISTS idx_tasks_room       ON tasks(room_id, status);
-CREATE INDEX IF NOT EXISTS idx_tasks_assigned   ON tasks(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_notices_room     ON notices(room_id, pinned, created_at);
+CREATE TABLE IF NOT EXISTS sensors (
+    sensor_id   TEXT NOT NULL,
+    room_id     TEXT NOT NULL,
+    tool_id     TEXT,
+    label       TEXT NOT NULL,
+    schema_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (sensor_id, room_id)
+);
+
+CREATE TABLE IF NOT EXISTS sensor_events (
+    event_id    TEXT PRIMARY KEY,
+    room_id     TEXT NOT NULL,
+    sensor_id   TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    timestamp   TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    provenance  TEXT NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id)
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+    document_id TEXT PRIMARY KEY,
+    room_id     TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id)
+);
+
+CREATE TABLE IF NOT EXISTS document_versions (
+    document_id TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    uploaded_by TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    file_path   TEXT NOT NULL,
+    checksum    TEXT NOT NULL,
+    notes       TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (document_id, version),
+    FOREIGN KEY (document_id) REFERENCES documents(document_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_instances (
+    instance_id        TEXT PRIMARY KEY,
+    workflow_id        TEXT NOT NULL,
+    room_id            TEXT NOT NULL REFERENCES rooms(room_id),
+    title              TEXT NOT NULL,
+    current_step_id    TEXT NOT NULL,
+    current_step_label TEXT NOT NULL,
+    initiated_by       TEXT NOT NULL REFERENCES users(user_id),
+    started_at         TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'active'
+                       CHECK(status IN ('active','complete','cancelled','stalled')),
+    parent_template    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp    ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_user         ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_resource     ON audit_log(resource, seq);
+CREATE INDEX IF NOT EXISTS idx_tasks_room         ON tasks(room_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned     ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_notices_room       ON notices(room_id, pinned, created_at);
+CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events(room_id, sensor_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_workflow_room      ON workflow_instances(room_id, status);
 """
+
+
+def _migrate(conn) -> None:
+    """Idempotent column migrations for databases created before Day 4."""
+    try:
+        conn.execute("ALTER TABLE notices ADD COLUMN expires_at TEXT")
+    except Exception:
+        pass  # column already present
 
 
 def initialise_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+    seed_demo_workflows()
+
+
+def seed_demo_workflows() -> None:
+    """
+    Insert two realistic RoadWorks demo workflow instances.
+
+    Guards:
+      - At least one room must exist (uses its room_id)
+      - At least one user must exist (uses as initiated_by)
+      - workflow_instances table must be empty
+
+    Skips silently on a fresh installation with no real data.
+    """
+    with get_connection() as conn:
+        room_row = conn.execute("SELECT room_id FROM rooms LIMIT 1").fetchone()
+        user_row = conn.execute("SELECT user_id FROM users LIMIT 1").fetchone()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM workflow_instances"
+        ).fetchone()[0]
+
+        if not room_row or not user_row or count > 0:
+            return
+
+        room_id = room_row["room_id"]
+        user_id = user_row["user_id"]
+        now = datetime.utcnow()
+
+        instances = [
+            (
+                str(uuid.uuid4()),
+                "wf-procurement-001",
+                room_id,
+                "Procurement Request — Tarmac Materials Q2",
+                "approval",
+                "Awaiting Finance Approval",
+                user_id,
+                (now - timedelta(days=3)).isoformat(),
+                "stalled",
+                "Procurement Workflow v1",
+            ),
+            (
+                str(uuid.uuid4()),
+                "wf-inspection-001",
+                room_id,
+                "Section 4A Site Inspection",
+                "field_report",
+                "Field Officer Submission",
+                user_id,
+                (now - timedelta(days=1)).isoformat(),
+                "active",
+                "Road Inspection Workflow v1",
+            ),
+        ]
+
+        conn.executemany(
+            """INSERT INTO workflow_instances
+               (instance_id, workflow_id, room_id, title, current_step_id,
+                current_step_label, initiated_by, started_at, status, parent_template)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            instances,
+        )

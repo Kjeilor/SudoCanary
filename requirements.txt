@@ -1,0 +1,12 @@
+# Core
+sqlcipher3
+bcrypt
+pyotp
+qrcode[pil]
+Pillow
+
+# Sensor validation
+jsonschema>=4.0
+
+# UI
+PySide6

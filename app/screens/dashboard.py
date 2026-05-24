@@ -82,11 +82,23 @@ class DashboardView(QWidget):
 
         # Notice Board widget
         self._notice_widget = _DashWidget("Notice Board")
-        self._notice_widget.body().addWidget(QLabel("No notices posted."))
+        self._notice_list = QVBoxLayout()
+        self._notice_widget.body().addLayout(self._notice_list)
+        view_nb_btn = QPushButton("View all →")
+        view_nb_btn.setFlat(True)
+        view_nb_btn.setStyleSheet("color: #89b4fa; text-align: left;")
+        view_nb_btn.clicked.connect(lambda: self.navigate_to.emit("notice_board"))
+        self._notice_widget.body().addWidget(view_nb_btn)
 
         # Workflow widget
         self._workflow_widget = _DashWidget("Workflows")
-        self._workflow_widget.body().addWidget(QLabel("Workflow engine — Day 4"))
+        self._wf_list = QVBoxLayout()
+        self._workflow_widget.body().addLayout(self._wf_list)
+        view_wf_btn = QPushButton("View all →")
+        view_wf_btn.setFlat(True)
+        view_wf_btn.setStyleSheet("color: #89b4fa; text-align: left;")
+        view_wf_btn.clicked.connect(lambda: self.navigate_to.emit("workflows"))
+        self._workflow_widget.body().addWidget(view_wf_btn)
 
         grid.addWidget(self._canary_widget,    0, 0)
         grid.addWidget(self._task_widget,      0, 1)
@@ -135,3 +147,46 @@ class DashboardView(QWidget):
                 self._feed_list.addWidget(lbl)
         except Exception:
             self._feed_list.addWidget(QLabel("Could not load activity."))
+
+        # Notice Board preview (top 3)
+        while self._notice_list.count():
+            item = self._notice_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        try:
+            from core.noticeboard_impl import noticeboard_service
+            notices = noticeboard_service.list_notices(self._room_id)[:3]
+            if not notices:
+                self._notice_list.addWidget(QLabel("No notices."))
+            for n in notices:
+                prefix = "📌 " if n["pinned"] else ""
+                lbl = QLabel(f"{prefix}{n['title']}")
+                lbl.setWordWrap(True)
+                self._notice_list.addWidget(lbl)
+        except Exception:
+            self._notice_list.addWidget(QLabel("—"))
+
+        # Workflow preview
+        while self._wf_list.count():
+            item = self._wf_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        try:
+            from core.db.connection import get_connection
+            with get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT title, status FROM workflow_instances "
+                    "WHERE room_id = ? AND status IN ('active','stalled') "
+                    "ORDER BY started_at DESC LIMIT 3",
+                    (str(self._room_id),),
+                ).fetchall()
+            if not rows:
+                self._wf_list.addWidget(QLabel("No active workflows."))
+            for row in rows:
+                colour = "#f9e2af" if row["status"] == "stalled" else "#cdd6f4"
+                lbl = QLabel(f"<span style='color:{colour}'>●</span>  {row['title']}")
+                lbl.setTextFormat(Qt.RichText)
+                lbl.setWordWrap(True)
+                self._wf_list.addWidget(lbl)
+        except Exception:
+            self._wf_list.addWidget(QLabel("—"))

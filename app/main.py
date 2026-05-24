@@ -1,5 +1,5 @@
 """
-Application entry point — Day 3.
+Application entry point — Day 4.
 
 Window structure:
   QMainWindow
@@ -96,6 +96,7 @@ class CanaryWindow(QMainWindow):
         self._settings.back_requested.connect(self._show_staging)
 
         self._room_view.status_message.connect(self._status_bar.set_message)
+        self._room_view.notice_count_changed.connect(self._top_bar.set_notification_count)
 
         # ── Inactivity timers ─────────────────────────────────────────
         self._inactivity_timer = QTimer(self)
