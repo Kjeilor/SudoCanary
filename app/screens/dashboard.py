@@ -90,21 +90,35 @@ class DashboardView(QWidget):
         view_nb_btn.clicked.connect(lambda: self.navigate_to.emit("notice_board"))
         self._notice_widget.body().addWidget(view_nb_btn)
 
-        # Workflow widget
+        # Workflow widget — counts: active and stalled
         self._workflow_widget = _DashWidget("Workflows")
-        self._wf_list = QVBoxLayout()
-        self._workflow_widget.body().addLayout(self._wf_list)
+        self._wf_active_label = QLabel("—")
+        self._wf_stalled_label = QLabel("—")
+        self._workflow_widget.body().addWidget(self._wf_active_label)
+        self._workflow_widget.body().addWidget(self._wf_stalled_label)
         view_wf_btn = QPushButton("View all →")
         view_wf_btn.setFlat(True)
         view_wf_btn.setStyleSheet("color: #89b4fa; text-align: left;")
         view_wf_btn.clicked.connect(lambda: self.navigate_to.emit("workflows"))
         self._workflow_widget.body().addWidget(view_wf_btn)
 
+        # Quick actions widget — role-gated
+        self._qa_widget = _DashWidget("Quick Actions")
+        self._create_task_btn = QPushButton("＋  Create Task")
+        self._create_task_btn.setFixedHeight(36)
+        self._create_task_btn.clicked.connect(self._on_create_task)
+        self._submit_form_btn = QPushButton("⊡  Submit Form")
+        self._submit_form_btn.setFixedHeight(36)
+        self._submit_form_btn.clicked.connect(lambda: self.navigate_to.emit("sensors"))
+        self._qa_widget.body().addWidget(self._create_task_btn)
+        self._qa_widget.body().addWidget(self._submit_form_btn)
+
         grid.addWidget(self._canary_widget,    0, 0)
         grid.addWidget(self._task_widget,      0, 1)
         grid.addWidget(self._feed_widget,      1, 0)
         grid.addWidget(self._notice_widget,    1, 1)
-        grid.addWidget(self._workflow_widget,  2, 0, 1, 2)
+        grid.addWidget(self._workflow_widget,  2, 0)
+        grid.addWidget(self._qa_widget,        2, 1)
 
         layout.addWidget(header)
         layout.addSpacing(12)
@@ -190,3 +204,57 @@ class DashboardView(QWidget):
                 self._wf_list.addWidget(lbl)
         except Exception:
             self._wf_list.addWidget(QLabel("—"))
+
+        # Workflow counts (active + stalled)
+        try:
+            from core.db.connection import get_connection
+            with get_connection() as conn:
+                n_active = conn.execute(
+                    "SELECT COUNT(*) FROM workflow_instances "
+                    "WHERE room_id = ? AND status = 'active'",
+                    (str(self._room_id),),
+                ).fetchone()[0]
+                n_stalled = conn.execute(
+                    "SELECT COUNT(*) FROM workflow_instances "
+                    "WHERE room_id = ? AND status = 'stalled'",
+                    (str(self._room_id),),
+                ).fetchone()[0]
+            self._wf_active_label.setText(f"{n_active} active")
+            stalled_text = f"{n_stalled} stalled"
+            self._wf_stalled_label.setText(stalled_text)
+            colour = "#f9e2af" if n_stalled > 0 else "#6c7086"
+            self._wf_stalled_label.setStyleSheet(f"color: {colour};")
+        except Exception:
+            self._wf_active_label.setText("—")
+            self._wf_stalled_label.setText("—")
+
+        # Quick actions — role-gated
+        from core.auth.rbac import can_manage_room
+        is_officer = can_manage_room(self._actor, self._room_id)
+        self._create_task_btn.setVisible(is_officer)
+        self._submit_form_btn.setVisible(is_officer)
+
+    def _on_create_task(self) -> None:
+        """Open the task creation dialog from the dashboard."""
+        from app.screens.tasks_view import _CreateTaskDialog
+        from core.room_impl import RoomAPIImpl
+        members = RoomAPIImpl(self._actor).list_members(self._room_id)
+        dlg = _CreateTaskDialog(members, self)
+        if dlg.exec() != dlg.Accepted:
+            return
+        vals = dlg.values()
+        try:
+            from core.task_impl import task_service
+            task_service.create_task(
+                actor=self._actor,
+                room_id=self._room_id,
+                title=vals["title"],
+                description=vals["description"],
+                assigned_to=vals["assigned_to"],
+                due_at=vals["due_at"],
+                trackability=vals["trackability"],
+            )
+            self._refresh()
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", str(exc))

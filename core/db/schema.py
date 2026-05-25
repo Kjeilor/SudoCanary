@@ -177,6 +177,7 @@ def _migrate(conn) -> None:
 def initialise_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        conn.executescript(_SCHEMA_DAY5)
         _migrate(conn)
     seed_demo_workflows()
 
@@ -240,3 +241,18 @@ def seed_demo_workflows() -> None:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             instances,
         )
+
+# Called from initialise_schema — adds photo_checkins table
+_SCHEMA_DAY5 = """
+CREATE TABLE IF NOT EXISTS photo_checkins (
+    event_id    TEXT PRIMARY KEY REFERENCES sensor_events(event_id),
+    entity_id   TEXT NOT NULL,
+    photo_path  TEXT NOT NULL,
+    gps_lat     REAL,
+    gps_lon     REAL,
+    timestamp   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_checkins_entity
+    ON photo_checkins(entity_id, timestamp DESC);
+"""

@@ -1,11 +1,9 @@
 """
-app/screens/room_view.py
+app/screens/room_view.py — Day 5
 
-Room view — top-level container for a single room.
-Left: RoomSidebar. Right: QStackedWidget with all room views.
-
-Day 4: Workflows, Sensors, Documents, Notice Board are live.
-       notice_count_changed signal drives the top bar bell badge.
+Room view container: sidebar + content stack.
+Dashboard refreshes on tab switch (nav_requested signal).
+All tabs now live or scaffolded.
 """
 from __future__ import annotations
 
@@ -25,6 +23,7 @@ from app.screens.workflows import WorkflowsView
 from app.screens.sensors import SensorsView
 from app.screens.documents import DocumentsView
 from app.screens.noticeboard import NoticeBoardView
+from app.screens.member_directory import MemberDirectoryView
 from app.screens.placeholder_view import PlaceholderView
 
 _VIEWS = {
@@ -35,13 +34,14 @@ _VIEWS = {
     "sensors":      4,
     "documents":    5,
     "notice_board": 6,
-    "reports":      7,
+    "directory":    7,
+    "reports":      8,
 }
 
 
 class RoomView(QWidget):
-    status_message      = Signal(str)
-    notice_count_changed = Signal(int)   # → top bar bell badge
+    status_message       = Signal(str)
+    notice_count_changed = Signal(int)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -66,6 +66,7 @@ class RoomView(QWidget):
         self._sensor_view = SensorsView()
         self._doc_view    = DocumentsView()
         self._nb_view     = NoticeBoardView()
+        self._dir_view    = MemberDirectoryView()
 
         self._stack.addWidget(self._dashboard)                          # 0
         self._stack.addWidget(self._tasks_view)                         # 1
@@ -74,7 +75,8 @@ class RoomView(QWidget):
         self._stack.addWidget(self._sensor_view)                        # 4
         self._stack.addWidget(self._doc_view)                           # 5
         self._stack.addWidget(self._nb_view)                            # 6
-        self._stack.addWidget(PlaceholderView("Reports", "Day 11"))     # 7
+        self._stack.addWidget(self._dir_view)                           # 7
+        self._stack.addWidget(PlaceholderView("Reports", "Day 11"))     # 8
 
         # Signal forwarding
         self._dashboard.navigate_to.connect(self._navigate)
@@ -84,6 +86,7 @@ class RoomView(QWidget):
         self._doc_view.status_message.connect(self.status_message)
         self._nb_view.status_message.connect(self.status_message)
         self._nb_view.notice_count_changed.connect(self.notice_count_changed)
+        self._dir_view.status_message.connect(self.status_message)
 
         layout.addWidget(self._sidebar)
         layout.addWidget(self._stack, stretch=1)
@@ -99,7 +102,6 @@ class RoomView(QWidget):
         self._sidebar.set_room(room_name, role, member_count)
         self._sidebar.set_active("dashboard")
 
-        # Load all live views
         self._dashboard.load(actor, self._room_id)
         self._tasks_view.load(actor, self._room_id, members)
         self._feed_view.load(actor, self._room_id)
@@ -107,6 +109,7 @@ class RoomView(QWidget):
         self._sensor_view.load(actor, self._room_id)
         self._doc_view.load(actor, self._room_id)
         self._nb_view.load(actor, self._room_id)
+        self._dir_view.load(actor, self._room_id)
 
         self._stack.setCurrentIndex(_VIEWS["dashboard"])
         self.status_message.emit("Dashboard loaded")
@@ -117,8 +120,10 @@ class RoomView(QWidget):
         self._sidebar.set_active(key)
         self.status_message.emit(f"{key.replace('_', ' ').title()} loaded")
 
-        # Refresh on navigation
-        if key == "activity_feed":
+        # Refresh on navigation (Q3 answer: refresh on tab switch)
+        if key == "dashboard":
+            self._dashboard.load(self._actor, self._room_id)
+        elif key == "activity_feed":
             self._feed_view.load(self._actor, self._room_id)
         elif key == "tasks":
             members = RoomAPIImpl(self._actor).list_members(self._room_id)
@@ -131,3 +136,5 @@ class RoomView(QWidget):
             self._doc_view.load(self._actor, self._room_id)
         elif key == "notice_board":
             self._nb_view.load(self._actor, self._room_id)
+        elif key == "directory":
+            self._dir_view.load(self._actor, self._room_id)

@@ -17,6 +17,7 @@ _NAV_ITEMS = [
     ("workflows",      "⟳   Workflows"),
     ("sensors",        "⊡   Sensors"),
     ("documents",      "⎗   Documents"),
+    ("directory",      "👥  Directory"),
     ("tools",          "🔧  Tools"),
     ("reports",        "↗   Reports"),
     ("activity_feed",  "📋  Activity Feed"),

@@ -84,7 +84,7 @@ class DataNoticeScreen(QWidget):
             "I have read and understood this data privacy notice."
         )
         self._check.stateChanged.connect(
-            lambda state: self._continue_btn.setEnabled(state == Qt.Checked)
+           lambda state: self._continue_btn.setEnabled(state == 2)
         )
 
         self._continue_btn = QPushButton("Continue")
