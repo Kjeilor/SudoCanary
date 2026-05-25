@@ -63,7 +63,7 @@ class CanaryWindow(QMainWindow):
         from app.screens.data_notice import DataNoticeScreen
         from app.screens.totp_setup import TOTPSetupScreen
         from app.screens.totp_verify import TOTPVerifyScreen
-        from app.screens.home import StagingArea
+        from app.screens.staging import StagingArea
         from app.screens.room_view import RoomView
         from app.screens.settings import SettingsScreen
 
