@@ -1,20 +1,15 @@
 """
-app/screens/staging.py
+app/screens/staging.py — Day 6
 
-Staging area — shown after MFA, before entering a room.
-Displays accessible rooms as cards: name, role, canary status (grey until
-Day 6 engine), active task count, overdue count highlighted amber.
-
-Emits:
-  room_selected(room_id: str, room_name: str)  — user clicked a card
-  settings_requested()                          — gear icon clicked
+Room cards with live Canary status dot (reads latest persisted state).
+Cards re-query on every load_rooms() call — recompute on navigation (Q3).
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -39,49 +34,69 @@ class _RoomCard(QFrame):
         self._room_id   = room["room_id"]
         self._room_name = room["name"]
         self.setFixedSize(230, 150)
-        self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(
             "QFrame { background-color: #181825; border-radius: 10px; }"
-            "QFrame:hover { background-color: #24243e; }"
         )
         self._build(room, actor)
+
+        # Transparent full-card button — guaranteed click detection
+        self._btn = QPushButton(self)
+        self._btn.setFlat(True)
+        self._btn.setFixedSize(230, 150)
+        self._btn.move(0, 0)
+        self._btn.raise_()
+        self._btn.setCursor(Qt.PointingHandCursor)
+        self._btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 10px; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.04); }"
+        )
+        self._btn.clicked.connect(
+            lambda: self.clicked.emit(self._room_id, self._room_name)
+        )
 
     def _build(self, room: dict, actor: User) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(4)
 
-        # Room name
         name = QLabel(room["name"])
         name.setFont(QFont("", 13, QFont.Bold))
         name.setWordWrap(True)
+        name.setAttribute(Qt.WA_TransparentForMouseEvents)
 
-        # Role badge
         role = get_room_role(actor, RoomId(room["room_id"]))
         role_text = role.value.replace("_", " ").title() if role else "No role"
         role_label = QLabel(role_text)
         role_label.setStyleSheet("color: #a6adc8; font-size: 12px;")
+        role_label.setAttribute(Qt.WA_TransparentForMouseEvents)
 
-        # Canary status — grey until Day 6
-        canary_row = QHBoxLayout()
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color: {_STATUS_COLOUR['grey']};")
-        status_lbl = QLabel("Pending")
-        status_lbl.setStyleSheet("color: #6c7086; font-size: 12px;")
-        canary_row.addWidget(dot)
-        canary_row.addWidget(status_lbl)
-        canary_row.addStretch()
+        # Live Canary status
+        canary_text, canary_colour = self._canary_status(room["room_id"])
+        dot = QLabel(f"● {canary_text}")
+        dot.setStyleSheet(f"color: {canary_colour}; font-size: 12px;")
+        dot.setAttribute(Qt.WA_TransparentForMouseEvents)
 
-        # Task counts
         task_label = self._task_summary(actor, room["room_id"])
+        task_label.setAttribute(Qt.WA_TransparentForMouseEvents)
 
         layout.addWidget(name)
         layout.addWidget(role_label)
         layout.addStretch()
-        layout.addLayout(canary_row)
+        layout.addWidget(dot)
         layout.addWidget(task_label)
 
-    def _task_summary(self, actor: User, room_id: str) -> QLabel:
+    @staticmethod
+    def _canary_status(room_id: str) -> tuple[str, str]:
+        try:
+            from core.canary_engine import canary_engine
+            status = canary_engine.get_overall_status(RoomId(room_id))
+            label = status.upper() if status != "grey" else "Pending"
+            return label, _STATUS_COLOUR.get(status, "#6c7086")
+        except Exception:
+            return "Pending", _STATUS_COLOUR["grey"]
+
+    @staticmethod
+    def _task_summary(actor: User, room_id: str) -> QLabel:
         try:
             from core.task_impl import task_service
             counts = task_service.count_by_status(actor, RoomId(room_id))
@@ -89,22 +104,16 @@ class _RoomCard(QFrame):
             if counts["overdue"]:
                 text += f"  ·  {counts['overdue']} overdue"
             lbl = QLabel(text)
-            if counts["overdue"]:
-                lbl.setStyleSheet("color: #f9e2af; font-size: 12px;")
-            else:
-                lbl.setStyleSheet("color: #a6adc8; font-size: 12px;")
+            colour = "#f9e2af" if counts["overdue"] else "#a6adc8"
+            lbl.setStyleSheet(f"color: {colour}; font-size: 12px;")
         except Exception:
             lbl = QLabel("No tasks")
             lbl.setStyleSheet("color: #6c7086; font-size: 12px;")
         return lbl
 
-    def mousePressEvent(self, event) -> None:
-        self.clicked.emit(self._room_id, self._room_name)
-        super().mousePressEvent(event)
-
 
 class StagingArea(QWidget):
-    room_selected      = Signal(str, str)   # room_id, room_name
+    room_selected      = Signal(str, str)
     settings_requested = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -144,7 +153,6 @@ class StagingArea(QWidget):
         layout.addWidget(self._empty_label)
 
     def load_rooms(self, actor: User) -> None:
-        # Clear existing cards
         while self._grid.count():
             item = self._grid.takeAt(0)
             if item.widget():

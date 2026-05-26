@@ -32,16 +32,19 @@ def _save_prefs(user_id: str, prefs: dict) -> None:
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO user_preferences
-               (user_id, theme, font_size, colour_blind_mode, high_contrast, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)
+               (user_id, theme, font_size, colour_blind_mode, high_contrast,
+                compute_interval_minutes, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                theme=excluded.theme, font_size=excluded.font_size,
                colour_blind_mode=excluded.colour_blind_mode,
                high_contrast=excluded.high_contrast,
+               compute_interval_minutes=excluded.compute_interval_minutes,
                updated_at=excluded.updated_at""",
             (
                 user_id, prefs["theme"], prefs["font_size"],
-                prefs["colour_blind_mode"], prefs["high_contrast"], now,
+                prefs["colour_blind_mode"], prefs["high_contrast"],
+                prefs.get("compute_interval_minutes", 5), now,
             ),
         )
 
@@ -128,6 +131,19 @@ class SettingsScreen(QWidget):
         coming_layout.addWidget(QLabel("Screen reader  ·  Keyboard navigation  ·  Motor accessibility"))
         coming.setEnabled(False)
 
+        # ── Data refresh ──────────────────────────────────────────────
+        refresh_group = QGroupBox("Data Refresh")
+        ref_layout = QFormLayout(refresh_group)
+        self._interval_spin = __import__('PySide6.QtWidgets', fromlist=['QSpinBox']).QSpinBox()
+        self._interval_spin.setRange(1, 60)
+        self._interval_spin.setValue(5)
+        self._interval_spin.setSuffix(" minutes")
+        self._interval_spin.setToolTip(
+            "How often the Canary engine recomputes room status. "
+            "Lower = more frequent updates, higher CPU use."
+        )
+        ref_layout.addRow("Canary refresh interval", self._interval_spin)
+
         # ── Save ──────────────────────────────────────────────────────
         save_btn = QPushButton("Save Settings")
         save_btn.setFixedHeight(40)
@@ -137,6 +153,7 @@ class SettingsScreen(QWidget):
         layout.addWidget(title)
         layout.addWidget(appearance)
         layout.addWidget(accessibility)
+        layout.addWidget(refresh_group)
         layout.addWidget(coming)
         layout.addStretch()
         layout.addWidget(save_btn)
@@ -152,6 +169,7 @@ class SettingsScreen(QWidget):
             if btn.property("cb_val") == prefs.get("colour_blind_mode", "none"):
                 btn.setChecked(True)
         self._high_contrast.setChecked(bool(prefs.get("high_contrast", 0)))
+        self._interval_spin.setValue(prefs.get("compute_interval_minutes", 5))
 
     def _save(self) -> None:
         if not self._user_id:
@@ -160,10 +178,11 @@ class SettingsScreen(QWidget):
         size_btn = self._size_grp.checkedButton()
         cb_btn = self._cb_grp.checkedButton()
         prefs = {
-            "theme":             theme_btn.property("theme_val") if theme_btn else "dark",
-            "font_size":         size_btn.property("size_val") if size_btn else "M",
-            "colour_blind_mode": cb_btn.property("cb_val") if cb_btn else "none",
-            "high_contrast":     1 if self._high_contrast.isChecked() else 0,
+            "theme":                    theme_btn.property("theme_val") if theme_btn else "dark",
+            "font_size":                size_btn.property("size_val") if size_btn else "M",
+            "colour_blind_mode":        cb_btn.property("cb_val") if cb_btn else "none",
+            "high_contrast":            1 if self._high_contrast.isChecked() else 0,
+            "compute_interval_minutes": self._interval_spin.value(),
         }
         _save_prefs(self._user_id, prefs)
         self.back_requested.emit()

@@ -142,6 +142,14 @@ class FormSensorImpl:
             )
 
         self.on_submit(event)
+
+        # Trigger Canary recompute so the dashboard updates immediately
+        try:
+            from core.canary_engine import canary_engine
+            canary_engine.compute(self.room_id)
+        except Exception:
+            pass  # Never block a submission due to Canary failure
+
         return event
 
     # ── Read ──────────────────────────────────────────────────────────────────

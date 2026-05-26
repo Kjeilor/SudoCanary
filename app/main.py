@@ -107,6 +107,11 @@ class CanaryWindow(QMainWindow):
         self._warn_timer.setSingleShot(True)
         self._warn_timer.timeout.connect(self._on_inactivity_warning)
 
+        # ── Canary compute timer (configurable interval) ───────────────
+        self._canary_timer = QTimer(self)
+        self._canary_timer.timeout.connect(self._on_canary_tick)
+        self._canary_interval_ms = 5 * 60 * 1000  # default 5 minutes
+
         self._stack.setCurrentWidget(self._login)
 
     # ── Auth flow ─────────────────────────────────────────────────────────────
@@ -142,6 +147,48 @@ class CanaryWindow(QMainWindow):
         self._top_bar.setVisible(True)
         self._show_staging()
         self._start_inactivity_timers()
+        self._start_canary_timer()
+
+    def _start_canary_timer(self) -> None:
+        """Start (or restart) the Canary timer using the user's saved interval."""
+        interval_ms = self._canary_interval_ms
+        if self._session_id:
+            try:
+                from core.db.connection import get_connection
+                user = session_manager.get_user(self._session_id)
+                if user:
+                    with get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT compute_interval_minutes FROM user_preferences "
+                            "WHERE user_id=?", (str(user.user_id),)
+                        ).fetchone()
+                    if row and row["compute_interval_minutes"]:
+                        interval_ms = row["compute_interval_minutes"] * 60 * 1000
+            except Exception:
+                pass
+        self._canary_interval_ms = interval_ms
+        self._canary_timer.start(interval_ms)
+
+    def _on_canary_tick(self) -> None:
+        """Periodic Canary recompute — fires for the current room if in one."""
+        try:
+            from core.canary_engine import canary_engine
+            if self._stack.currentWidget() is self._room_view:
+                # Recompute current room
+                if hasattr(self._room_view, '_room_id') and self._room_view._room_id:
+                    canary_engine.compute(self._room_view._room_id)
+            elif self._stack.currentWidget() is self._staging:
+                # Recompute all accessible rooms for status dots
+                user = session_manager.get_user(self._session_id)
+                if user:
+                    from core.room_impl import RoomAPIImpl
+                    for room in RoomAPIImpl(user).list_rooms():
+                        try:
+                            canary_engine.compute(room["room_id"])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     # ── Navigation ────────────────────────────────────────────────────────────
 

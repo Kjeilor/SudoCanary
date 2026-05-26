@@ -178,8 +178,11 @@ def initialise_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
         conn.executescript(_SCHEMA_DAY5)
+        conn.executescript(_SCHEMA_DAY6)
         _migrate(conn)
+        _migrate_day6(conn)
     seed_demo_workflows()
+    seed_demo_workflow_steps()
 
 
 def seed_demo_workflows() -> None:
@@ -256,3 +259,113 @@ CREATE TABLE IF NOT EXISTS photo_checkins (
 CREATE INDEX IF NOT EXISTS idx_checkins_entity
     ON photo_checkins(entity_id, timestamp DESC);
 """
+# ---------------------------------------------------------------------------
+# Day 6 schema additions
+# ---------------------------------------------------------------------------
+
+_SCHEMA_DAY6 = """
+CREATE TABLE IF NOT EXISTS canary_states (
+    state_id     TEXT PRIMARY KEY,
+    room_id      TEXT NOT NULL REFERENCES rooms(room_id),
+    tool_id      TEXT,
+    generated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS canary_outputs (
+    output_id  TEXT PRIMARY KEY,
+    state_id   TEXT NOT NULL REFERENCES canary_states(state_id),
+    key        TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    status     TEXT NOT NULL CHECK(status IN ('green','amber','red','grey')),
+    detail     TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_canary_room
+    ON canary_states(room_id, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_steps (
+    step_id       TEXT NOT NULL,
+    workflow_id   TEXT NOT NULL,
+    room_id       TEXT NOT NULL,
+    label         TEXT NOT NULL,
+    description   TEXT NOT NULL DEFAULT '',
+    required_role TEXT,
+    step_order    INTEGER NOT NULL,
+    is_terminal   INTEGER NOT NULL DEFAULT 0,
+    sla_hours     INTEGER,
+    PRIMARY KEY (step_id, workflow_id, room_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_step_history (
+    record_id   TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL REFERENCES workflow_instances(instance_id),
+    step_id     TEXT NOT NULL,
+    advanced_by TEXT NOT NULL REFERENCES users(user_id),
+    advanced_at TEXT NOT NULL,
+    notes       TEXT NOT NULL DEFAULT '',
+    payload     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS room_settings (
+    room_id          TEXT PRIMARY KEY REFERENCES rooms(room_id),
+    stale_threshold  INTEGER NOT NULL DEFAULT 3,
+    compute_interval INTEGER NOT NULL DEFAULT 5
+);
+"""
+
+
+def _migrate_day6(conn) -> None:
+    """Day 6 idempotent migrations."""
+    try:
+        conn.execute(
+            "ALTER TABLE user_preferences "
+            "ADD COLUMN compute_interval_minutes INTEGER NOT NULL DEFAULT 5"
+        )
+    except Exception:
+        pass
+
+
+def seed_demo_workflow_steps() -> None:
+    """
+    Seed step definitions for the two demo workflow instances.
+    Guards: workflow_steps must be empty and demo instances must exist.
+    """
+    with get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM workflow_steps").fetchone()[0]
+        if count > 0:
+            return
+
+        room_rows = conn.execute(
+            "SELECT DISTINCT room_id FROM workflow_instances "
+            "WHERE workflow_id IN ('wf-procurement-001', 'wf-inspection-001')"
+        ).fetchall()
+
+        if not room_rows:
+            return
+
+        for rrow in room_rows:
+            rid = rrow["room_id"]
+
+            procurement = [
+                ("request",      "wf-procurement-001", rid, "Procurement Request",       "Field Officer submits procurement request",       "field_officer", 1, 0, 24),
+                ("approval",     "wf-procurement-001", rid, "Awaiting Finance Approval",  "Finance Approver reviews and approves the request", "approver",     2, 0, 48),
+                ("fulfillment",  "wf-procurement-001", rid, "Order Fulfillment",           "Goods are ordered and delivered to site",          "field_officer", 3, 0, 72),
+                ("confirmation", "wf-procurement-001", rid, "Fulfillment Confirmation",   "Admin confirms goods received — closes process",   "admin",         4, 1, 24),
+            ]
+
+            inspection = [
+                ("assignment",   "wf-inspection-001", rid, "Inspection Assignment",      "Admin assigns inspection to Field Officer",        "admin",         1, 0, 24),
+                ("field_report", "wf-inspection-001", rid, "Field Officer Submission",   "Field Officer submits the inspection report",      "field_officer", 2, 0, 48),
+                ("review",       "wf-inspection-001", rid, "Report Review",              "Officer reviews the submitted report",             "officer",       3, 0, 24),
+                ("sign_off",     "wf-inspection-001", rid, "QA Sign-off",                "Admin signs off — closes the inspection",         "admin",         4, 1, 24),
+            ]
+
+            conn.executemany(
+                "INSERT OR IGNORE INTO workflow_steps "
+                "(step_id, workflow_id, room_id, label, description, "
+                " required_role, step_order, is_terminal, sla_hours) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                procurement + inspection,
+            )

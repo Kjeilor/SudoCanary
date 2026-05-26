@@ -42,6 +42,11 @@ class DashboardView(QWidget):
     def load(self, actor: User, room_id: RoomId) -> None:
         self._actor = actor
         self._room_id = room_id
+        # Subscribe to Canary updates for this room
+        from core.canary_engine import canary_engine
+        if self._canary_sub_id:
+            canary_engine.unsubscribe(self._canary_sub_id)
+        self._canary_sub_id = canary_engine.subscribe(room_id, self._on_canary_update)
         self._refresh()
 
     def _build_ui(self) -> None:
@@ -54,11 +59,22 @@ class DashboardView(QWidget):
         grid = QGridLayout()
         grid.setSpacing(16)
 
-        # Canary status widget
+        # Canary status widget — live from Day 6
         self._canary_widget = _DashWidget("Canary Status")
-        canary_val = QLabel("● Grey — Engine active Day 6")
-        canary_val.setStyleSheet("color: #6c7086;")
-        self._canary_widget.body().addWidget(canary_val)
+        self._canary_status_dot = QLabel("●  Initialising…")
+        self._canary_status_dot.setStyleSheet("color: #6c7086; font-size: 14px;")
+        self._canary_time_lbl = QLabel("")
+        self._canary_time_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
+        self._canary_outputs_layout = QVBoxLayout()
+        canary_refresh_btn = QPushButton("↻ Refresh")
+        canary_refresh_btn.setFlat(True)
+        canary_refresh_btn.setStyleSheet("color: #89b4fa;")
+        canary_refresh_btn.clicked.connect(self._refresh_canary)
+        self._canary_widget.body().addWidget(self._canary_status_dot)
+        self._canary_widget.body().addWidget(self._canary_time_lbl)
+        self._canary_widget.body().addLayout(self._canary_outputs_layout)
+        self._canary_widget.body().addWidget(canary_refresh_btn)
+        self._canary_sub_id: str | None = None
 
         # Task summary widget
         self._task_widget = _DashWidget("Tasks")
@@ -233,6 +249,51 @@ class DashboardView(QWidget):
         is_officer = can_manage_room(self._actor, self._room_id)
         self._create_task_btn.setVisible(is_officer)
         self._submit_form_btn.setVisible(is_officer)
+
+        # Canary — load latest persisted state, then compute fresh
+        self._refresh_canary()
+
+    def _refresh_canary(self) -> None:
+        if not self._room_id:
+            return
+        from core.canary_engine import canary_engine
+        try:
+            state = canary_engine.compute(self._room_id)
+            self._render_canary(state)
+        except Exception:
+            self._canary_status_dot.setText("●  Error computing Canary")
+            self._canary_status_dot.setStyleSheet("color: #f38ba8;")
+
+    def _on_canary_update(self, state) -> None:
+        """Called by canary_engine subscription — main thread only."""
+        self._render_canary(state)
+
+    def _render_canary(self, state) -> None:
+        from core.canary_engine import _overall_status
+        _COLOUR = {"green": "#a6e3a1", "amber": "#f9e2af", "red": "#f38ba8", "grey": "#6c7086"}
+        overall = _overall_status(list(state.outputs))
+        colour = _COLOUR.get(overall, "#6c7086")
+        self._canary_status_dot.setText(f"●  {overall.upper()}")
+        self._canary_status_dot.setStyleSheet(f"color: {colour}; font-size: 14px; font-weight: bold;")
+        ts = state.generated_at.strftime("%H:%M:%S")
+        self._canary_time_lbl.setText(f"Last computed: {ts}")
+
+        # Clear output rows
+        while self._canary_outputs_layout.count():
+            item = self._canary_outputs_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for output in state.outputs[:6]:  # show top 6 outputs
+            dot_colour = _COLOUR.get(output.status, "#6c7086")
+            row_lbl = QLabel(
+                f"<span style='color:{dot_colour}'>●</span>  "
+                f"<span style='color:#a6adc8'>{output.label}:</span>  {output.value}"
+            )
+            row_lbl.setTextFormat(Qt.RichText)
+            if output.detail:
+                row_lbl.setToolTip(output.detail)
+            self._canary_outputs_layout.addWidget(row_lbl)
 
     def _on_create_task(self) -> None:
         """Open the task creation dialog from the dashboard."""
