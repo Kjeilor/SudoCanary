@@ -196,31 +196,6 @@ class DashboardView(QWidget):
         except Exception:
             self._notice_list.addWidget(QLabel("—"))
 
-        # Workflow preview
-        while self._wf_list.count():
-            item = self._wf_list.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        try:
-            from core.db.connection import get_connection
-            with get_connection() as conn:
-                rows = conn.execute(
-                    "SELECT title, status FROM workflow_instances "
-                    "WHERE room_id = ? AND status IN ('active','stalled') "
-                    "ORDER BY started_at DESC LIMIT 3",
-                    (str(self._room_id),),
-                ).fetchall()
-            if not rows:
-                self._wf_list.addWidget(QLabel("No active workflows."))
-            for row in rows:
-                colour = "#f9e2af" if row["status"] == "stalled" else "#cdd6f4"
-                lbl = QLabel(f"<span style='color:{colour}'>●</span>  {row['title']}")
-                lbl.setTextFormat(Qt.RichText)
-                lbl.setWordWrap(True)
-                self._wf_list.addWidget(lbl)
-        except Exception:
-            self._wf_list.addWidget(QLabel("—"))
-
         # Workflow counts (active + stalled)
         try:
             from core.db.connection import get_connection

@@ -1,9 +1,8 @@
 """
-app/screens/room_view.py — Day 5
+app/screens/room_view.py — Day 7
 
 Room view container: sidebar + content stack.
-Dashboard refreshes on tab switch (nav_requested signal).
-All tabs now live or scaffolded.
+Tools tab added; sidebar Tools item shown when installed_tools > 0.
 """
 from __future__ import annotations
 
@@ -11,6 +10,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QWidget
 
 from core.auth.rbac import get_room_role
+from core.db.connection import get_connection
 from core.models.user import User
 from core.room_impl import RoomAPIImpl
 from core.sdk.types import RoomId
@@ -24,6 +24,7 @@ from app.screens.sensors import SensorsView
 from app.screens.documents import DocumentsView
 from app.screens.noticeboard import NoticeBoardView
 from app.screens.member_directory import MemberDirectoryView
+from app.screens.tools import ToolsView
 from app.screens.placeholder_view import PlaceholderView
 
 _VIEWS = {
@@ -35,7 +36,8 @@ _VIEWS = {
     "documents":    5,
     "notice_board": 6,
     "directory":    7,
-    "reports":      8,
+    "tools":        8,
+    "reports":      9,
 }
 
 
@@ -67,6 +69,7 @@ class RoomView(QWidget):
         self._doc_view    = DocumentsView()
         self._nb_view     = NoticeBoardView()
         self._dir_view    = MemberDirectoryView()
+        self._tools_view  = ToolsView()
 
         self._stack.addWidget(self._dashboard)                          # 0
         self._stack.addWidget(self._tasks_view)                         # 1
@@ -76,7 +79,8 @@ class RoomView(QWidget):
         self._stack.addWidget(self._doc_view)                           # 5
         self._stack.addWidget(self._nb_view)                            # 6
         self._stack.addWidget(self._dir_view)                           # 7
-        self._stack.addWidget(PlaceholderView("Reports", "Day 11"))     # 8
+        self._stack.addWidget(self._tools_view)                         # 8
+        self._stack.addWidget(PlaceholderView("Reports", "Day 11"))     # 9
 
         # Signal forwarding
         self._dashboard.navigate_to.connect(self._navigate)
@@ -87,6 +91,8 @@ class RoomView(QWidget):
         self._nb_view.status_message.connect(self.status_message)
         self._nb_view.notice_count_changed.connect(self.notice_count_changed)
         self._dir_view.status_message.connect(self.status_message)
+        self._tools_view.status_message.connect(self.status_message)
+        self._tools_view.tools_installed.connect(self._sidebar.set_tools_visible)
 
         layout.addWidget(self._sidebar)
         layout.addWidget(self._stack, stretch=1)
@@ -99,7 +105,14 @@ class RoomView(QWidget):
         member_count = len(members)
         role = get_room_role(actor, self._room_id)
 
+        # Check tool installation for sidebar visibility
+        with get_connection() as conn:
+            has_tools = conn.execute(
+                "SELECT COUNT(*) FROM installed_tools WHERE room_id=?", (room_id,)
+            ).fetchone()[0] > 0
+
         self._sidebar.set_room(room_name, role, member_count)
+        self._sidebar.set_tools_visible(has_tools)
         self._sidebar.set_active("dashboard")
 
         self._dashboard.load(actor, self._room_id)
@@ -110,6 +123,7 @@ class RoomView(QWidget):
         self._doc_view.load(actor, self._room_id)
         self._nb_view.load(actor, self._room_id)
         self._dir_view.load(actor, self._room_id)
+        self._tools_view.load(actor, self._room_id)
 
         self._stack.setCurrentIndex(_VIEWS["dashboard"])
         self.status_message.emit("Dashboard loaded")
@@ -120,7 +134,6 @@ class RoomView(QWidget):
         self._sidebar.set_active(key)
         self.status_message.emit(f"{key.replace('_', ' ').title()} loaded")
 
-        # Refresh on navigation (Q3 answer: refresh on tab switch)
         if key == "dashboard":
             self._dashboard.load(self._actor, self._room_id)
         elif key == "activity_feed":
@@ -138,3 +151,5 @@ class RoomView(QWidget):
             self._nb_view.load(self._actor, self._room_id)
         elif key == "directory":
             self._dir_view.load(self._actor, self._room_id)
+        elif key == "tools":
+            self._tools_view.load(self._actor, self._room_id)

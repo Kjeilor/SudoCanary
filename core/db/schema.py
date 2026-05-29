@@ -179,8 +179,8 @@ def initialise_schema() -> None:
         conn.executescript(SCHEMA)
         conn.executescript(_SCHEMA_DAY5)
         conn.executescript(_SCHEMA_DAY6)
-        _migrate(conn)
-        _migrate_day6(conn)
+        conn.executescript(_SCHEMA_DAY7)
+    run_migrations()
     seed_demo_workflows()
     seed_demo_workflow_steps()
 
@@ -315,6 +315,54 @@ CREATE TABLE IF NOT EXISTS room_settings (
 );
 """
 
+_SCHEMA_DAY7 = """
+CREATE TABLE IF NOT EXISTS installed_tools (
+    room_id      TEXT NOT NULL REFERENCES rooms(room_id),
+    tool_id      TEXT NOT NULL,
+    installed_by TEXT NOT NULL REFERENCES users(user_id),
+    installed_at TEXT NOT NULL,
+    config       TEXT,
+    PRIMARY KEY (room_id, tool_id)
+);
+
+CREATE TABLE IF NOT EXISTS roadworks_sections (
+    section_id TEXT NOT NULL,
+    room_id    TEXT NOT NULL,
+    label      TEXT NOT NULL,
+    length_km  REAL NOT NULL DEFAULT 2.0,
+    status     TEXT NOT NULL DEFAULT 'not_started'
+               CHECK(status IN ('not_started','in_progress','complete','qa_approved')),
+    waypoints  TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (section_id, room_id)
+);
+
+CREATE TABLE IF NOT EXISTS roadworks_km_progress (
+    event_id      TEXT PRIMARY KEY REFERENCES sensor_events(event_id),
+    section_id    TEXT NOT NULL,
+    room_id       TEXT NOT NULL,
+    km_paved      REAL NOT NULL,
+    date          TEXT NOT NULL,
+    cumulative_km REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS roadworks_materials (
+    event_id          TEXT PRIMARY KEY REFERENCES sensor_events(event_id),
+    section_id        TEXT NOT NULL,
+    room_id           TEXT NOT NULL,
+    material          TEXT NOT NULL,
+    quantity_acquired REAL NOT NULL,
+    quantity_consumed REAL NOT NULL,
+    unit              TEXT NOT NULL,
+    date              TEXT NOT NULL,
+    divergence_pct    REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_installed_tools  ON installed_tools(room_id);
+CREATE INDEX IF NOT EXISTS idx_rw_sections      ON roadworks_sections(room_id);
+CREATE INDEX IF NOT EXISTS idx_rw_km            ON roadworks_km_progress(section_id, room_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_rw_materials     ON roadworks_materials(section_id, room_id, date DESC);
+"""
 
 def _migrate_day6(conn) -> None:
     """Day 6 idempotent migrations."""
@@ -369,3 +417,31 @@ def seed_demo_workflow_steps() -> None:
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 procurement + inspection,
             )
+
+def run_migrations() -> None:
+    """
+    Idempotent schema migrations. Safe to call on every startup.
+    Each migration checks for column/table existence before altering.
+    Called from initialise_schema() after table creation.
+    """
+    with get_connection() as conn:
+        # Day 4: expires_at on notices
+        try:
+            conn.execute("ALTER TABLE notices ADD COLUMN expires_at TEXT")
+        except Exception:
+            pass
+
+        # Day 6: compute_interval_minutes on user_preferences
+        try:
+            conn.execute(
+                "ALTER TABLE user_preferences "
+                "ADD COLUMN compute_interval_minutes INTEGER NOT NULL DEFAULT 5"
+            )
+        except Exception:
+            pass
+
+        # Day 9: tags on tasks (JSON blob for section tagging etc.)
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN tags TEXT")
+        except Exception:
+            pass

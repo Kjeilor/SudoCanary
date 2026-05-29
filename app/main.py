@@ -258,9 +258,18 @@ class CanaryWindow(QMainWindow):
             self._reset_inactivity_timers()
         super().keyPressEvent(event)
 
+    def closeEvent(self, event) -> None:
+        from core.tiles.tile_server import tile_server
+        tile_server.stop()
+        super().closeEvent(event)
+
 
 def main() -> None:
     initialise_schema()
+
+    # Start tile server before the window appears
+    from core.tiles.tile_server import tile_server
+    tile_server.start()
     app = QApplication(sys.argv)
     app.setApplicationName("Sudo Canary")
 

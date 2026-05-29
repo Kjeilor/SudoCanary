@@ -21,6 +21,9 @@ data/documents/
 data/photos/
 data/tiles/
 
+# Offline tile cache — populated by tools/_tile_downloader.py before showcase
+tiles/osm/
+
 # Generated files
 totp_qr.png
 *.png

@@ -6,8 +6,8 @@ from datetime import datetime
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QGroupBox, QHBoxLayout,
-    QLabel, QPushButton, QRadioButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFormLayout, QGroupBox, QHBoxLayout,
+    QLabel, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from core.db.connection import get_connection
@@ -134,7 +134,7 @@ class SettingsScreen(QWidget):
         # ── Data refresh ──────────────────────────────────────────────
         refresh_group = QGroupBox("Data Refresh")
         ref_layout = QFormLayout(refresh_group)
-        self._interval_spin = __import__('PySide6.QtWidgets', fromlist=['QSpinBox']).QSpinBox()
+        self._interval_spin = QSpinBox()
         self._interval_spin.setRange(1, 60)
         self._interval_spin.setValue(5)
         self._interval_spin.setSuffix(" minutes")

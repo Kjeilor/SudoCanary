@@ -109,6 +109,11 @@ class RoomSidebar(QWidget):
         # Tools hidden by default — shown when a Tool is installed
         self._buttons["tools"].hide()
 
+    def set_tools_visible(self, visible: bool) -> None:
+        """Called by ToolsView.tools_installed signal and room_view.load_room."""
+        if "tools" in self._buttons:
+            self._buttons["tools"].setVisible(visible)
+
     def set_active(self, key: str) -> None:
         for k, btn in self._buttons.items():
             active = k == key
