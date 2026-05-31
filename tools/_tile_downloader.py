@@ -50,9 +50,13 @@ def deg_to_tile(lat: float, lon: float, zoom: int) -> tuple[int, int]:
 def tiles_for_bbox(
     west: float, south: float, east: float, north: float, zoom: int
 ) -> list[tuple[int, int, int]]:
-    """Return list of (z, x, y) tuples for the bounding box at given zoom."""
-    x_min, y_max = deg_to_tile(north, west, zoom)
-    x_max, y_min = deg_to_tile(south, east, zoom)
+    x_min, y_min = deg_to_tile(north, west, zoom)
+    x_max, y_max = deg_to_tile(south, east, zoom)
+    # Ensure correct order
+    if x_min > x_max:
+        x_min, x_max = x_max, x_min
+    if y_min > y_max:
+        y_min, y_max = y_max, y_min
     tiles = []
     for x in range(x_min, x_max + 1):
         for y in range(y_min, y_max + 1):

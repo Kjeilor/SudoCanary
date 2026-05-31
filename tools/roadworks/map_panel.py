@@ -20,6 +20,7 @@ import io
 import json
 import os
 from datetime import datetime
+from pydoc import html
 from typing import Any, Optional
 
 from core.sdk.types import CanaryState, RoomId
@@ -107,6 +108,18 @@ map.on('click', function() {{ sendSectionClick(''); }});
 function sendSectionClick(section_id) {{
   if (window._bridge) {{ window._bridge.on_section_clicked(section_id); }}
 }}
+
+function setDivergenceAlert(section_id, has_alert, severity) {
+  var key = section_id + '_alert';
+  if (layers[key]) { map.removeLayer(layers[key]); delete layers[key]; }
+  if (has_alert && layers[section_id] && layers[section_id].getLatLngs) {
+    var alertLine = L.polyline(layers[section_id].getLatLngs(), {
+      color: severity === 'red' ? '#EF4444' : '#F59E0B',
+      weight: 10, opacity: 0.4, dashArray: '8, 8'
+    }).addTo(map);
+    layers[key] = alertLine;
+  }
+}
 
 function updateSection(section_id, colour, status, last_checkin, photo) {{
   if (!layers[section_id]) return;
@@ -235,10 +248,18 @@ class RoadWorksMapPanel:
         return view
 
     def on_canary_update(self, canary_state: CanaryState) -> None:
-        """Push section colour changes to JS without reloading."""
+        """Push section colour changes and divergence overlays without reloading."""
         if not self._view or not self._loaded:
             return
         rid = str(self.room_id)
+        # Progress colour updates
+        for output in canary_state.outputs:
+            if output.key.startswith("roadworks.materials.S"):
+                section_id = output.key.split(".")[-1]
+                has_alert  = output.status in ("amber", "red")
+                severity   = output.status
+                js = f"setDivergenceAlert('{section_id}', {'true' if has_alert else 'false'}, '{severity}');"
+                self._view.page().runJavaScript(js)
         for output in canary_state.outputs:
             if not output.key.startswith("roadworks.progress.S"):
                 continue
@@ -269,6 +290,8 @@ class RoadWorksMapPanel:
 
     def _on_load_finished(self, ok: bool) -> None:
         self._loaded = ok
+        if ok and self._view:
+            self._view.page().runJavaScript("setTimeout(function(){ map.invalidateSize(); }, 100);")
 
     def _on_destroyed(self) -> None:
         """Unsubscribe from Canary when widget is destroyed."""
@@ -280,18 +303,27 @@ class RoadWorksMapPanel:
                 pass
             self._sub_id = None
 
-    def _build_html(
-        self, canary_state: CanaryState, server_url: str, qwebchannel_script: str
-    ) -> str:
-        lat, lon = self._centre_from_waypoints()
-        sections = self._get_section_data()
-        return _MAP_HTML.format(
-            server_url=server_url,
-            lat=lat, lon=lon, zoom=14,
-            sections_json=json.dumps(sections),
-            qwebchannel_script=qwebchannel_script,
-            bridge_init=_BRIDGE_INIT_JS,
-        )
+    def _build_html(self, canary_state, server_url, qwebchannel_script):
+            lat, lon = self._centre_from_waypoints()
+            sections = self._get_section_data()
+            html = _MAP_HTML
+            # Replace named placeholders manually to avoid conflicts with JS braces
+            for placeholder, value in [
+                ("{server_url}", server_url),
+                ("{lat}", str(lat)),
+                ("{lon}", str(lon)),
+                ("{zoom}", "14"),
+                ("{sections_json}", json.dumps(sections)),
+                ("{qwebchannel_script}", qwebchannel_script),
+                ("{bridge_init}", _BRIDGE_INIT_JS),
+            ]:
+                html = html.replace(placeholder, value)
+            # Un-escape {{ and }} left over from .format() escaping
+            html = html.replace("{{", "{").replace("}}", "}")
+            with open("/tmp/map_debug.html", "w") as f:
+                f.write(html)
+            print("[MAP DEBUG] HTML saved to /tmp/map_debug.html")
+            return html
 
     def _get_section_data(self) -> list:
         from core.db.connection import get_connection

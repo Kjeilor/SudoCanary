@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QLabel,
     QLineEdit,
     QScrollArea,
@@ -58,7 +59,8 @@ class FormRenderer(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(scroll.NoFrame)
+        from PySide6.QtWidgets import QFrame
+        scroll.setFrameShape(QFrame.NoFrame)
 
         container = QWidget()
         form = QFormLayout(container)

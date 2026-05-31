@@ -1,8 +1,7 @@
 """
-app/screens/room_view.py — Day 7
+app/screens/room_view.py — Day 10
 
 Room view container: sidebar + content stack.
-Tools tab added; sidebar Tools item shown when installed_tools > 0.
 """
 from __future__ import annotations
 
@@ -25,19 +24,19 @@ from app.screens.documents import DocumentsView
 from app.screens.noticeboard import NoticeBoardView
 from app.screens.member_directory import MemberDirectoryView
 from app.screens.tools import ToolsView
-from app.screens.placeholder_view import PlaceholderView
+from app.screens.reports import ReportsView
 
 _VIEWS = {
-    "dashboard":    0,
-    "tasks":        1,
+    "dashboard":     0,
+    "tasks":         1,
     "activity_feed": 2,
-    "workflows":    3,
-    "sensors":      4,
-    "documents":    5,
-    "notice_board": 6,
-    "directory":    7,
-    "tools":        8,
-    "reports":      9,
+    "workflows":     3,
+    "sensors":       4,
+    "documents":     5,
+    "notice_board":  6,
+    "directory":     7,
+    "tools":         8,
+    "reports":       9,
 }
 
 
@@ -61,28 +60,28 @@ class RoomView(QWidget):
 
         self._stack = QStackedWidget()
 
-        self._dashboard   = DashboardView()
-        self._tasks_view  = TasksView()
-        self._feed_view   = ActivityFeedView()
-        self._wf_view     = WorkflowsView()
-        self._sensor_view = SensorsView()
-        self._doc_view    = DocumentsView()
-        self._nb_view     = NoticeBoardView()
-        self._dir_view    = MemberDirectoryView()
-        self._tools_view  = ToolsView()
+        self._dashboard    = DashboardView()
+        self._tasks_view   = TasksView()
+        self._feed_view    = ActivityFeedView()
+        self._wf_view      = WorkflowsView()
+        self._sensor_view  = SensorsView()
+        self._doc_view     = DocumentsView()
+        self._nb_view      = NoticeBoardView()
+        self._dir_view     = MemberDirectoryView()
+        self._tools_view   = ToolsView()
+        self._reports_view = ReportsView()
 
-        self._stack.addWidget(self._dashboard)                          # 0
-        self._stack.addWidget(self._tasks_view)                         # 1
-        self._stack.addWidget(self._feed_view)                          # 2
-        self._stack.addWidget(self._wf_view)                            # 3
-        self._stack.addWidget(self._sensor_view)                        # 4
-        self._stack.addWidget(self._doc_view)                           # 5
-        self._stack.addWidget(self._nb_view)                            # 6
-        self._stack.addWidget(self._dir_view)                           # 7
-        self._stack.addWidget(self._tools_view)                         # 8
-        self._stack.addWidget(PlaceholderView("Reports", "Day 11"))     # 9
+        self._stack.addWidget(self._dashboard)     # 0
+        self._stack.addWidget(self._tasks_view)    # 1
+        self._stack.addWidget(self._feed_view)     # 2
+        self._stack.addWidget(self._wf_view)       # 3
+        self._stack.addWidget(self._sensor_view)   # 4
+        self._stack.addWidget(self._doc_view)      # 5
+        self._stack.addWidget(self._nb_view)       # 6
+        self._stack.addWidget(self._dir_view)      # 7
+        self._stack.addWidget(self._tools_view)    # 8
+        self._stack.addWidget(self._reports_view)  # 9
 
-        # Signal forwarding
         self._dashboard.navigate_to.connect(self._navigate)
         self._tasks_view.status_message.connect(self.status_message)
         self._wf_view.status_message.connect(self.status_message)
@@ -93,6 +92,7 @@ class RoomView(QWidget):
         self._dir_view.status_message.connect(self.status_message)
         self._tools_view.status_message.connect(self.status_message)
         self._tools_view.tools_installed.connect(self._sidebar.set_tools_visible)
+        self._reports_view.status_message.connect(self.status_message)
 
         layout.addWidget(self._sidebar)
         layout.addWidget(self._stack, stretch=1)
@@ -101,11 +101,10 @@ class RoomView(QWidget):
         self._actor = actor
         self._room_id = RoomId(room_id)
 
-        members = RoomAPIImpl(actor).list_members(self._room_id)
+        members      = RoomAPIImpl(actor).list_members(self._room_id)
         member_count = len(members)
-        role = get_room_role(actor, self._room_id)
+        role         = get_room_role(actor, self._room_id)
 
-        # Check tool installation for sidebar visibility
         with get_connection() as conn:
             has_tools = conn.execute(
                 "SELECT COUNT(*) FROM installed_tools WHERE room_id=?", (room_id,)
@@ -124,6 +123,7 @@ class RoomView(QWidget):
         self._nb_view.load(actor, self._room_id)
         self._dir_view.load(actor, self._room_id)
         self._tools_view.load(actor, self._room_id)
+        self._reports_view.load(actor, self._room_id)
 
         self._stack.setCurrentIndex(_VIEWS["dashboard"])
         self.status_message.emit("Dashboard loaded")
@@ -153,3 +153,5 @@ class RoomView(QWidget):
             self._dir_view.load(self._actor, self._room_id)
         elif key == "tools":
             self._tools_view.load(self._actor, self._room_id)
+        elif key == "reports":
+            self._reports_view.load(self._actor, self._room_id)

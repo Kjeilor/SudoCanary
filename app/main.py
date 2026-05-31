@@ -14,6 +14,7 @@ Window structure:
         SettingsScreen
 """
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
@@ -273,39 +274,13 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Sudo Canary")
 
-    # Default dark stylesheet
-    app.setStyleSheet("""
-        QMainWindow, QWidget { background-color: #1e1e2e; color: #cdd6f4; }
-        QStackedWidget { background-color: #1e1e2e; }
-        QFrame { background-color: #181825; }
-        QPushButton {
-            background-color: #313244; color: #cdd6f4;
-            border: none; border-radius: 4px; padding: 6px 14px;
-        }
-        QPushButton:hover { background-color: #45475a; }
-        QPushButton:disabled { color: #585b70; background-color: #1e1e2e; }
-        QLineEdit, QTextEdit, QComboBox, QDateTimeEdit {
-            background-color: #313244; color: #cdd6f4;
-            border: 1px solid #45475a; border-radius: 4px; padding: 4px 8px;
-        }
-        QTableWidget {
-            background-color: #181825; color: #cdd6f4;
-            border: 1px solid #313244; gridline-color: #313244;
-        }
-        QTableWidget::item:selected { background-color: #313244; }
-        QTableWidget::item:alternate { background-color: #1e1e2e; }
-        QHeaderView::section {
-            background-color: #313244; color: #a6adc8;
-            border: none; padding: 6px;
-        }
-        QListWidget { background-color: #181825; color: #cdd6f4; border: none; }
-        QListWidget::item:alternate { background-color: #1e1e2e; }
-        QGroupBox { color: #cdd6f4; border: 1px solid #313244; border-radius: 6px; margin-top: 8px; padding-top: 8px; }
-        QGroupBox::title { subcontrol-origin: margin; left: 10px; }
-        QScrollArea { border: none; background: transparent; }
-        QStatusBar { background-color: #181825; color: #a6adc8; }
-        QDialog { background-color: #1e1e2e; }
-    """)
+    # Load design system stylesheet
+    qss_path = Path(__file__).parent / "styles" / "main.qss"
+    if qss_path.exists():
+        app.setStyleSheet(qss_path.read_text())
+    else:
+        # Fallback inline dark theme
+        app.setStyleSheet("QMainWindow, QWidget { background-color: #262626; color: #FFFFFF; }")
 
     window = CanaryWindow()
     window.show()

@@ -1,34 +1,40 @@
 """
-tools/roadworks/producers.py
+tools/roadworks/producers.py — Day 10
 
-Three RoadWorks Canary producers registered at Tool install time.
-Registered as room-specific producers via canary_engine.register_producer().
+Three RoadWorks Canary producers.
+
+Materials producer now outputs per-section outputs (roadworks.materials.S1..S6)
+and a summary (roadworks.materials.summary). Thresholds read from
+installed_tools.config. Divergence status drives dashed map overlay.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
-from typing import Any, List
+from typing import List
 
 from core.sdk.types import CanaryOutput
 
 
-def _get_thresholds(room_id: str) -> dict:
-    """Read divergence thresholds from installed_tools.config. Defaults: 15/30."""
+def _get_config(room_id: str) -> dict:
     try:
-        import json
         from core.db.connection import get_connection
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT config FROM installed_tools WHERE room_id=? AND tool_id='roadworks'",
                 (room_id,),
             ).fetchone()
-        cfg = json.loads(row["config"]) if row and row["config"] else {}
-        return {
-            "amber": cfg.get("divergence_amber", 15),
-            "red":   cfg.get("divergence_red", 30),
-        }
+        return json.loads(row["config"]) if row and row["config"] else {}
     except Exception:
-        return {"amber": 15, "red": 30}
+        return {}
+
+
+def _divergence_status(pct: float, amber: float, red: float) -> str:
+    if pct >= red:
+        return "red"
+    if pct >= amber:
+        return "amber"
+    return "green"
 
 
 # ---------------------------------------------------------------------------
@@ -71,12 +77,12 @@ def progress_producer(room_id: str, events: list) -> List[CanaryOutput]:
 
         with get_connection() as conn:
             cum_row = conn.execute(
-                "SELECT COALESCE(MAX(cumulative_km),0) FROM roadworks_km_progress "
+                "SELECT COALESCE(MAX(cumulative_km), 0) FROM roadworks_km_progress "
                 "WHERE section_id=? AND room_id=?",
                 (sid, room_id),
             ).fetchone()
         km_done = cum_row[0] if cum_row else 0
-        pct     = round(km_done / length * 100, 1) if length > 0 else 0
+        pct = round(km_done / length * 100, 1) if length > 0 else 0
 
         detail_extra = " · QA Approved" if status == "qa_approved" else ""
         outputs.append(CanaryOutput(
@@ -85,7 +91,7 @@ def progress_producer(room_id: str, events: list) -> List[CanaryOutput]:
             value=f"{km_done:.2f} / {length:.1f} km ({pct}%)",
             status=_STATUS_MAP.get(status, "grey"),
             updated_at=now,
-            detail=f"Status: {status.replace('_', ' ').title()}{detail_extra}",
+            detail=f"Status: {status.replace('_',' ').title()}{detail_extra}",
         ))
 
     all_approved = all(s["status"] == "qa_approved" for s in sections)
@@ -108,60 +114,114 @@ def progress_producer(room_id: str, events: list) -> List[CanaryOutput]:
 
 
 # ---------------------------------------------------------------------------
-# Materials producer
+# Materials producer — per-section per-material outputs
 # ---------------------------------------------------------------------------
 
 def materials_producer(room_id: str, events: list) -> List[CanaryOutput]:
     from core.db.connection import get_connection
-    thresholds = _get_thresholds(room_id)
+    cfg = _get_config(room_id)
+    amber_thresh = cfg.get("divergence_amber", 15.0)
+    red_thresh   = cfg.get("divergence_red",   30.0)
     now = datetime.utcnow()
 
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT section_id, material, "
+            "SELECT section_id, material, unit, "
             "SUM(quantity_acquired) AS total_acq, "
             "SUM(quantity_consumed) AS total_con "
             "FROM roadworks_materials WHERE room_id=? "
-            "GROUP BY section_id, material",
+            "GROUP BY section_id, material, unit",
             (room_id,),
         ).fetchall()
 
     if not rows:
         return [CanaryOutput(
-            key="roadworks.materials.divergence",
+            key="roadworks.materials.summary",
             label="Materials Divergence",
             value="No data",
             status="grey",
             updated_at=now,
         )]
 
-    worst = "green"
-    details = []
+    # Group by section — pick worst material per section
+    by_section: dict[str, dict] = {}
     for r in rows:
-        acq = r["total_acq"] or 0
-        con = r["total_con"] or 0
-        div = round((con - acq) / acq * 100, 1) if acq > 0 else 0
+        sid  = r["section_id"]
+        acq  = r["total_acq"] or 0
+        con  = r["total_con"] or 0
+        div  = round((con - acq) / acq * 100, 1) if acq > 0 else 0
+        stat = _divergence_status(div, amber_thresh, red_thresh)
 
-        if div > thresholds["red"]:
-            status = "red"
-        elif div > thresholds["amber"]:
-            status = "amber"
-        else:
-            status = "green"
+        if sid not in by_section or abs(div) > abs(by_section[sid]["divergence_pct"]):
+            by_section[sid] = {
+                "material":       r["material"],
+                "acquired":       acq,
+                "consumed":       con,
+                "unit":           r["unit"],
+                "divergence_pct": div,
+                "status":         stat,
+            }
 
-        if status == "red" or (status == "amber" and worst != "red"):
-            worst = status
+    outputs = []
+    worst_div   = 0.0
+    sections_flagged = 0
+    worst_section = ""
 
-        details.append(f"{r['section_id']}/{r['material']}: {div:+.1f}%")
+    for sid, d in sorted(by_section.items()):
+        stat = d["status"]
+        div  = d["divergence_pct"]
+        if stat in ("amber", "red"):
+            sections_flagged += 1
+        if abs(div) > abs(worst_div):
+            worst_div    = div
+            worst_section = sid
 
-    return [CanaryOutput(
-        key="roadworks.materials.divergence",
+        detail = (
+            f"Consumed {div:+.1f}% {'more' if div > 0 else 'less'} "
+            f"{d['material']} than acquired. "
+            f"Threshold: {red_thresh:.0f}%. "
+            f"Review procurement records."
+        ) if abs(div) > amber_thresh else None
+
+        outputs.append(CanaryOutput(
+            key=f"roadworks.materials.{sid}",
+            label=f"Section {sid} — Materials",
+            value=json.dumps({
+                "material":       d["material"],
+                "acquired":       d["acquired"],
+                "consumed":       d["consumed"],
+                "divergence_pct": d["divergence_pct"],
+                "unit":           d["unit"],
+            }),
+            status=stat,
+            updated_at=now,
+            detail=detail,
+        ))
+
+    overall_status = "green"
+    for o in outputs:
+        if o.status == "red":
+            overall_status = "red"; break
+        if o.status == "amber":
+            overall_status = "amber"
+
+    summary_detail = (
+        f"Section {worst_section} {by_section[worst_section]['material']} "
+        f"divergence exceeds threshold."
+    ) if worst_section and sections_flagged else "All materials within threshold."
+
+    outputs.append(CanaryOutput(
+        key="roadworks.materials.summary",
         label="Materials Divergence",
-        value=f"{len([d for d in details if '+' in d and float(d.split(':')[1].strip().rstrip('%')) > thresholds['amber']])} flagged",
-        status=worst,
+        value=json.dumps({
+            "sections_flagged":    sections_flagged,
+            "worst_divergence_pct": worst_div,
+        }),
+        status=overall_status,
         updated_at=now,
-        detail="  ·  ".join(details[:6]),
-    )]
+        detail=summary_detail,
+    ))
+    return outputs
 
 
 # ---------------------------------------------------------------------------
@@ -174,24 +234,26 @@ def rw_activity_producer(room_id: str, events: list) -> List[CanaryOutput]:
     cutoff_24 = (now - timedelta(hours=24)).isoformat()
     cutoff_48 = (now - timedelta(hours=48)).isoformat()
 
-    section_ids = ["S1", "S2", "S3", "S4", "S5", "S6"]
-
     with get_connection() as conn:
+        section_rows = conn.execute(
+            "SELECT section_id FROM roadworks_sections WHERE room_id=? ORDER BY section_id",
+            (room_id,),
+        ).fetchall()
+        section_ids = [r["section_id"] for r in section_rows] or ["S1","S2","S3","S4","S5","S6"]
+
         latest_rows = conn.execute(
             "SELECT pc.entity_id, MAX(se.timestamp) AS last_ts "
             "FROM photo_checkins pc "
             "JOIN sensor_events se ON pc.event_id = se.event_id "
-            "WHERE se.room_id=? AND pc.entity_id IN ('S1','S2','S3','S4','S5','S6') "
+            "WHERE se.room_id=? "
             "GROUP BY pc.entity_id",
             (room_id,),
         ).fetchall()
 
     last_checkin = {r["entity_id"]: r["last_ts"] for r in latest_rows}
 
-    stale_24 = [sid for sid in section_ids
-                if last_checkin.get(sid, "") < cutoff_24]
-    stale_48 = [sid for sid in section_ids
-                if last_checkin.get(sid, "") < cutoff_48]
+    stale_24 = [sid for sid in section_ids if last_checkin.get(sid, "") < cutoff_24]
+    stale_48 = [sid for sid in section_ids if last_checkin.get(sid, "") < cutoff_48]
 
     checkin_status = "green" if not stale_24 else ("amber" if not stale_48 else "red")
     stale_status   = "green" if not stale_48 else ("amber" if len(stale_48) <= 2 else "red")
