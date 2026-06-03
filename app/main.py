@@ -149,6 +149,21 @@ class CanaryWindow(QMainWindow):
         self._show_staging()
         self._start_inactivity_timers()
         self._start_canary_timer()
+        # Apply user's saved theme preference
+        try:
+            from app.theme import apply_theme
+            from core.db.connection import get_connection
+            user = session_manager.get_user(self._session_id)
+            if user:
+                with get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT theme FROM user_preferences WHERE user_id=?",
+                        (str(user.user_id),),
+                    ).fetchone()
+                if row and row["theme"]:
+                    apply_theme(row["theme"])
+        except Exception:
+            pass
 
     def _start_canary_timer(self) -> None:
         """Start (or restart) the Canary timer using the user's saved interval."""
@@ -274,13 +289,13 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Sudo Canary")
 
-    # Load design system stylesheet
-    qss_path = Path(__file__).parent / "styles" / "main.qss"
-    if qss_path.exists():
-        app.setStyleSheet(qss_path.read_text())
-    else:
-        # Fallback inline dark theme
-        app.setStyleSheet("QMainWindow, QWidget { background-color: #262626; color: #FFFFFF; }")
+    # Window icon
+    from PySide6.QtGui import QIcon
+    app.setWindowIcon(QIcon("app/assets/Sudo Canary Icon.svg"))
+
+    # Apply theme — dark by default, loads user preference after login
+    from app.theme import apply_theme
+    apply_theme("dark")
 
     window = CanaryWindow()
     window.show()

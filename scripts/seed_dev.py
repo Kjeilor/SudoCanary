@@ -409,10 +409,10 @@ def _seed_notices(gc, room_ids: dict) -> None:
                 expires_at = (NOW + timedelta(hours=n["expires_hours"])).isoformat()
             conn.execute(
                 "INSERT OR IGNORE INTO notices "
-                "(notice_id, room_id, title, message, posted_by, posted_at, "
-                " is_pinned, expires_at) VALUES (?,?,?,?,?,?,?,?)",
+                "(notice_id, room_id, title, body, author_id, created_at, "
+                " pinned, expires_at) VALUES (?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), rid, n["title"], n["content"],
-                 _uid("admin"), ts(2), 1 if n["pinned"] else 0, expires_at),
+                _uid("admin"), ts(2), 1 if n["pinned"] else 0, expires_at),
             )
 
 
@@ -424,33 +424,28 @@ def _seed_workflows(gc, room_ids: dict) -> None:
     with gc() as conn:
         conn.execute("PRAGMA foreign_keys = OFF")
 
-        # Instance 1 — active, currently at fulfillment (step 3)
-        iid1 = str(uuid.uuid4())
         conn.execute(
             "INSERT OR IGNORE INTO workflow_instances "
-            "(instance_id, room_id, workflow_id, title, current_step_id, "
-            " current_step_label, initiated_by, started_at, status, workflow_name) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (iid1, eng_rid, "wf-procurement-001",
-             "Tarmac Materials Q2 — Phase 2 Order",
+            "(instance_id, workflow_id, room_id, title, current_step_id, "
+            " current_step_label, initiated_by, started_at, status) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), "wf-procurement-001",
+             eng_rid, "Tarmac Materials Q2 — Phase 2 Order",
              "fulfillment", "Order Fulfillment",
-             _uid("eng_lead"), ts(5*24), "active", "Standard Procurement"),
+             _uid("eng_lead"), ts(5*24), "active"),
         )
 
-        # Instance 2 — stalled at approval (SLA exceeded 3 days ago)
-        iid2 = str(uuid.uuid4())
         conn.execute(
             "INSERT OR IGNORE INTO workflow_instances "
-            "(instance_id, room_id, workflow_id, title, current_step_id, "
-            " current_step_label, initiated_by, started_at, status, workflow_name) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (iid2, proc_rid, "wf-procurement-001",
-             "Aggregate Procurement — Emergency S3 Resupply",
+            "(instance_id, workflow_id, room_id, title, current_step_id, "
+            " current_step_label, initiated_by, started_at, status) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), "wf-procurement-001",
+             proc_rid, "Aggregate Procurement — Emergency S3 Resupply",
              "approval", "Awaiting Finance Approval",
-             _uid("proc_admin"), ts(9*24), "stalled", "Standard Procurement"),
+             _uid("proc_admin"), ts(9*24), "stalled"),
         )
 
-        # Seed workflow steps for both rooms if not already present
         for rid in (eng_rid, proc_rid):
             for sid, label, role, order, terminal, sla in [
                 ("request",      "Procurement Request",       "officer", 1, 0, 24),
@@ -464,6 +459,7 @@ def _seed_workflows(gc, room_ids: dict) -> None:
                     " step_order, is_terminal, sla_hours) VALUES (?,?,?,?,?,?,?,?)",
                     (sid, "wf-procurement-001", rid, label, role, order, terminal, sla),
                 )
+                
 
 
 def _compute_canary(room_ids: dict) -> None:

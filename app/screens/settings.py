@@ -134,7 +134,7 @@ class SettingsScreen(QWidget):
         # ── Data refresh ──────────────────────────────────────────────
         refresh_group = QGroupBox("Data Refresh")
         ref_layout = QFormLayout(refresh_group)
-        self._interval_spin = QSpinBox()
+        self._interval_spin = __import__('PySide6.QtWidgets', fromlist=['QSpinBox']).QSpinBox()
         self._interval_spin.setRange(1, 60)
         self._interval_spin.setValue(5)
         self._interval_spin.setSuffix(" minutes")
@@ -175,14 +175,21 @@ class SettingsScreen(QWidget):
         if not self._user_id:
             return
         theme_btn = self._theme_grp.checkedButton()
-        size_btn = self._size_grp.checkedButton()
-        cb_btn = self._cb_grp.checkedButton()
+        size_btn  = self._size_grp.checkedButton()
+        cb_btn    = self._cb_grp.checkedButton()
+        theme = theme_btn.property("theme_val") if theme_btn else "dark"
         prefs = {
-            "theme":                    theme_btn.property("theme_val") if theme_btn else "dark",
+            "theme":                    theme,
             "font_size":                size_btn.property("size_val") if size_btn else "M",
             "colour_blind_mode":        cb_btn.property("cb_val") if cb_btn else "none",
             "high_contrast":            1 if self._high_contrast.isChecked() else 0,
             "compute_interval_minutes": self._interval_spin.value(),
         }
         _save_prefs(self._user_id, prefs)
+        # Apply theme immediately — no restart required
+        try:
+            from app.theme import apply_theme
+            apply_theme(theme)
+        except Exception:
+            pass
         self.back_requested.emit()

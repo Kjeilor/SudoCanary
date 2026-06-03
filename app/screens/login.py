@@ -29,9 +29,23 @@ class LoginScreen(QWidget):
         title = QLabel("Sudo Canary")
         title.setFont(QFont("", 26, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
+        title.hide()   # hidden — replaced by SVG below
+
+        # SVG logo — shown above the form
+        try:
+            from PySide6.QtSvgWidgets import QSvgWidget
+            logo_widget = QSvgWidget("app/assets/Sudo Canary Logo.svg")
+            logo_widget.setFixedSize(220, 52)
+            _logo: QWidget = logo_widget
+        except Exception:
+            _logo = QLabel("Sudo Canary")
+            _logo.setFont(QFont("", 22, QFont.Bold))
+            _logo.setStyleSheet("color: #29AB87;")
+        _logo.setToolTip("Sudo Canary — Institutional Intelligence Engine")
 
         subtitle = QLabel("Institutional Intelligence Engine")
         subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("color: #AAAAAA; font-size: 12px;")
 
         form = QFormLayout()
         form.setSpacing(10)
@@ -55,7 +69,7 @@ class LoginScreen(QWidget):
         btn.setFixedHeight(42)
         btn.clicked.connect(self._attempt_login)
 
-        layout.addWidget(title)
+        layout.addWidget(_logo, alignment=Qt.AlignCenter)
         layout.addWidget(subtitle)
         layout.addSpacing(8)
         layout.addLayout(form)
@@ -63,6 +77,20 @@ class LoginScreen(QWidget):
         layout.addWidget(btn)
 
         root.addWidget(card, alignment=Qt.AlignCenter)
+
+        # Ateker mark below the card
+        try:
+            from PySide6.QtSvgWidgets import QSvgWidget
+            ateker = QSvgWidget("app/assets/From Ateker Logo.svg")
+            ateker.setFixedSize(140, 25)
+            root.addSpacing(16)
+            root.addWidget(ateker, alignment=Qt.AlignCenter)
+        except Exception:
+            ateker_lbl = QLabel("A product of Ateker")
+            ateker_lbl.setAlignment(Qt.AlignCenter)
+            ateker_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
+            root.addSpacing(16)
+            root.addWidget(ateker_lbl)
 
     def _attempt_login(self) -> None:
         username = self._username.text().strip()

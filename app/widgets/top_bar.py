@@ -19,8 +19,14 @@ class TopBar(QWidget):
         layout.setContentsMargins(20, 0, 20, 0)
         layout.setSpacing(8)
 
-        logo = QLabel("Sudo Canary")
-        logo.setFont(QFont("", 14, QFont.Bold))
+        try:
+            from PySide6.QtSvgWidgets import QSvgWidget
+            logo = QSvgWidget("app/assets/Sudo Canary Logo.svg")
+            logo.setFixedSize(140, 32)
+        except Exception:
+            logo = QLabel("Sudo Canary")
+            logo.setFont(QFont("", 14, QFont.Bold))
+            logo.setStyleSheet("color: #29AB87;")
 
         self._rooms_btn = QPushButton("Rooms")
         self._rooms_btn.setFlat(True)

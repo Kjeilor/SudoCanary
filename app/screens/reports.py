@@ -374,6 +374,24 @@ class ReportsView(QWidget):
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         return out / f"{name}_{ts}.pdf"
 
+    def _pdf_logo(self) -> list:
+        """Return reportlab story elements for the PDF header logo."""
+        from reportlab.platypus import Spacer
+        try:
+            from svglib.svglib import svg2rlg  # type: ignore
+            drawing = svg2rlg("app/assets/Ateker Logo.svg")
+            if drawing:
+                drawing.width  = 120
+                drawing.height = 30
+                drawing.scale(120 / max(drawing.width, 1), 30 / max(drawing.height, 1))
+                return [drawing, Spacer(1, 0.2)]
+        except Exception:
+            pass
+        from reportlab.platypus import Paragraph
+        from reportlab.lib.styles import getSampleStyleSheet
+        styles = getSampleStyleSheet()
+        return [Paragraph("A product of <b>Ateker</b>", styles["Normal"]), Spacer(1, 0.2)]
+
     def _write_status_pdf(self, data: dict) -> Path:
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
         from reportlab.lib.styles import getSampleStyleSheet
@@ -388,7 +406,7 @@ class ReportsView(QWidget):
         styles = getSampleStyleSheet()
         S = {"green": "#29AB87", "amber": "#F59E0B", "red": "#EF4444", "grey": "#6B7280"}
         sc = S.get(data["overall_status"].lower(), "#6B7280")
-        story = [
+        story = self._pdf_logo() + [
             Paragraph("<b>ROAD RECONSTRUCTION PROJECT</b>", styles["Heading1"]),
             Paragraph(f"Status Report — Generated: {data['generated_at']}", styles["Normal"]),
             Spacer(1, 0.3*cm),
@@ -464,7 +482,7 @@ class ReportsView(QWidget):
             action_counts[r["action"]] = action_counts.get(r["action"], 0) + 1
 
         now = datetime.utcnow().strftime("%d %b %Y %H:%M")
-        story = [
+        story = self._pdf_logo() + [
             Paragraph("<b>AUDIT TRAIL REPORT</b>", styles["Heading1"]),
             Paragraph(f"Generated: {now}  ·  Total events: {len(rows)}", styles["Normal"]),
             Spacer(1, 0.4*cm),
@@ -534,7 +552,7 @@ class ReportsView(QWidget):
         red_t      = cfg.get("divergence_red", 30)
         now        = datetime.utcnow().strftime("%d %b %Y %H:%M")
 
-        story = [
+        story = self._pdf_logo() + [
             Paragraph("<b>MATERIALS DIVERGENCE REPORT</b>", styles["Heading1"]),
             Paragraph(f"Generated: {now}", styles["Normal"]),
             Spacer(1, 0.4*cm),

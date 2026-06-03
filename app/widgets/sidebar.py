@@ -1,29 +1,24 @@
 """
-Room-level left sidebar. Role-aware — Sensors hidden for Viewer.
-Training always visible but locked. Tools hidden if no tool installed.
-Emits nav_requested(str) with the view key when an item is clicked.
-"""
-from PySide6.QtCore import Signal, Qt
-from PySide6.QtWidgets import (
-    QLabel, QPushButton, QVBoxLayout, QWidget, QFrame, QSizePolicy,
-)
-from PySide6.QtGui import QFont
+app/widgets/sidebar.py — Day 12
 
-from core.models.user import RoomRole
+Narrow icon-only sidebar (56px). Icons centred, tooltips on hover.
+Active item: #29AB87 left border. Class properties set for QSS targeting.
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 _NAV_ITEMS = [
-    ("dashboard",      "📊  Dashboard"),
-    ("tasks",          "✓   Tasks"),
-    ("workflows",      "⟳   Workflows"),
-    ("sensors",        "⊡   Sensors"),
-    ("documents",      "⎗   Documents"),
-    ("directory",      "👥  Directory"),
-    ("tools",          "🔧  Tools"),
-    ("reports",        "↗   Reports"),
-    ("activity_feed",  "📋  Activity Feed"),
+    ("dashboard",    "⊞",  "Dashboard"),
+    ("tasks",        "✓",  "Tasks"),
+    ("workflows",    "⟳",  "Workflows"),
+    ("sensors",      "⊡",  "Sensors"),
+    ("documents",    "⎗",  "Documents"),
+    ("directory",    "👥", "Directory"),
+    ("tools",        "🔧", "Tools"),
+    ("reports",      "↗",  "Reports"),
 ]
-
-_VIEWER_HIDDEN = {"sensors", "tools"}
 
 
 class RoomSidebar(QWidget):
@@ -31,109 +26,82 @@ class RoomSidebar(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(220)
+        self.setProperty("class", "sidebar")
+        self.setFixedWidth(56)
         self._buttons: dict[str, QPushButton] = {}
-        self._current = "dashboard"
+        self._active_key: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 8)
         layout.setSpacing(0)
 
-        # Room header
-        self._room_label = QLabel("Room")
-        self._room_label.setFont(QFont("", 13, QFont.Bold))
-        self._room_label.setContentsMargins(16, 16, 16, 4)
-        self._room_label.setWordWrap(True)
-
-        self._role_label = QLabel("")
-        self._role_label.setContentsMargins(16, 0, 16, 12)
-        self._role_label.setStyleSheet("color: #a6adc8;")
-
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("color: #313244;")
-
-        layout.addWidget(self._room_label)
-        layout.addWidget(self._role_label)
-        layout.addWidget(divider)
-
-        # Nav items
-        for key, label in _NAV_ITEMS:
-            btn = QPushButton(label)
-            btn.setFlat(True)
-            btn.setFixedHeight(40)
-            btn.setCheckable(True)
-            btn.setStyleSheet(self._btn_style(False))
-            btn.clicked.connect(lambda checked, k=key: self._on_nav(k))
-            btn.setContentsMargins(16, 0, 0, 0)
+        # Nav buttons
+        for key, icon, label in _NAV_ITEMS:
+            btn = self._make_btn(icon, label)
+            btn.clicked.connect(lambda _=False, k=key: self.nav_requested.emit(k))
             self._buttons[key] = btn
             layout.addWidget(btn)
 
-        layout.addStretch()
+        # Divider
+        div = QFrame()
+        div.setFrameShape(QFrame.HLine)
+        div.setStyleSheet("color: #444444;")
+        layout.addWidget(div)
 
-        # Divider before locked items
-        div2 = QFrame()
-        div2.setFrameShape(QFrame.HLine)
-        div2.setStyleSheet("color: #313244;")
-        layout.addWidget(div2)
-
-        # Training — always visible, locked
-        training_btn = QPushButton("🎓  Training")
-        training_btn.setFlat(True)
-        training_btn.setFixedHeight(40)
+        # Training (locked)
+        training_btn = self._make_btn("🎓", "Training (coming soon)")
         training_btn.setEnabled(False)
-        training_btn.setToolTip("Coming soon")
-        training_btn.setStyleSheet("color: #585b70; padding-left: 16px;")
+        self._buttons["training"] = training_btn
         layout.addWidget(training_btn)
 
-        # Member count + status
-        self._members_label = QLabel("👥  — members")
-        self._members_label.setContentsMargins(16, 8, 16, 8)
-        self._members_label.setStyleSheet("color: #a6adc8;")
-        layout.addWidget(self._members_label)
+        layout.addStretch()
 
-    def set_room(self, name: str, role: RoomRole, member_count: int) -> None:
-        self._room_label.setText(name)
-        self._role_label.setText(f"[{role.value.replace('_', ' ').title()}]")
-        self._members_label.setText(f"👥  {member_count} member{'s' if member_count != 1 else ''}")
+        # Bottom: connectivity indicator
+        self._conn_lbl = QLabel("🟢")
+        self._conn_lbl.setAlignment(Qt.AlignCenter)
+        self._conn_lbl.setFixedHeight(36)
+        self._conn_lbl.setToolTip("Connected")
+        layout.addWidget(self._conn_lbl)
 
-        # Hide items the role cannot access
-        for key, btn in self._buttons.items():
-            if role == RoomRole.VIEWER and key in _VIEWER_HIDDEN:
-                btn.hide()
-            else:
-                btn.show()
-
-        # Tools hidden by default — shown when a Tool is installed
+        # Tools hidden by default
         self._buttons["tools"].hide()
 
+    def _make_btn(self, icon: str, tooltip: str) -> QPushButton:
+        btn = QPushButton(icon)
+        btn.setProperty("class", "sidebar-item")
+        btn.setProperty("active", "false")
+        btn.setFixedWidth(56)
+        btn.setFixedHeight(48)
+        btn.setToolTip(tooltip)
+        btn.setCursor(Qt.PointingHandCursor)
+        return btn
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def set_room(self, room_name: str, role, member_count: int) -> None:
+        """Room info is now shown in the top bar breadcrumb — nothing to do here."""
+        pass
+
+    def set_active(self, key: str) -> None:
+        if self._active_key and self._active_key in self._buttons:
+            btn = self._buttons[self._active_key]
+            btn.setProperty("active", "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        self._active_key = key
+        if key in self._buttons:
+            btn = self._buttons[key]
+            btn.setProperty("active", "true")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
     def set_tools_visible(self, visible: bool) -> None:
-        """Called by ToolsView.tools_installed signal and room_view.load_room."""
         if "tools" in self._buttons:
             self._buttons["tools"].setVisible(visible)
 
-    def set_active(self, key: str) -> None:
-        for k, btn in self._buttons.items():
-            active = k == key
-            btn.setChecked(active)
-            btn.setStyleSheet(self._btn_style(active))
-        self._current = key
-
-    def _on_nav(self, key: str) -> None:
-        self.set_active(key)
-        self.nav_requested.emit(key)
-
-    @staticmethod
-    def _btn_style(active: bool) -> str:
-        if active:
-            return (
-                "QPushButton { background-color: #313244; color: #cdd6f4; "
-                "text-align: left; padding-left: 16px; border: none; }"
-            )
-        return (
-            "QPushButton { background-color: transparent; color: #a6adc8; "
-            "text-align: left; padding-left: 16px; border: none; }"
-            "QPushButton:hover { background-color: #1e1e2e; color: #cdd6f4; }"
-        )
+    def set_connectivity(self, online: bool) -> None:
+        self._conn_lbl.setText("🟢" if online else "🔴")
+        self._conn_lbl.setToolTip("Connected" if online else "Offline")

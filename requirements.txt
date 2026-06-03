@@ -12,3 +12,4 @@ jsonschema>=4.0
 PySide6
 # Report generation
 reportlab>=4.0
+svglib>=1.5
